@@ -388,6 +388,7 @@ static int get_access_token(ota_info_t *pinfo)
             //printf("not enough memory (realloc returned NULL)\n");
             return ret;
         }
+        memset(pmem,0,sizeof(memory));
         pmem->size = 0;
         pmem->buf = malloc(1);
         if(!pmem->buf) {
@@ -396,6 +397,7 @@ static int get_access_token(ota_info_t *pinfo)
             //printf("not enough memory (realloc returned NULL)\n");
             return ret;
         }
+        memset(pmem->buf,0,1);
         memset(&url,0,sizeof(url));
         snprintf(url,sizeof(url),"https://%s/v2/device_login",XLINK_OTA_ADDR);
         //printf("url:%s\n",url);
