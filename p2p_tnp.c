@@ -452,8 +452,7 @@ void auto_ota_signal_handler(int m)
            ,_FU_, _L_,m_region,g_p2ptnp_info.mmap_info->ts
 	       ,pTime_region->tm_year+1900, pTime_region->tm_mon+1, pTime_region->tm_mday, pTime_region->tm_hour, pTime_region->tm_min, pTime_region->tm_sec);
 	}
-    // Frank Zhang test
-	//if((g_auto_ota_start_time_hour <= pTime_region->tm_hour) && (pTime_region->tm_hour <= g_auto_ota_end_time_hour))
+	if((g_auto_ota_start_time_hour <= pTime_region->tm_hour) && (pTime_region->tm_hour <= g_auto_ota_end_time_hour))
 	{
 		ret = auto_ota_do_update();
 	}
@@ -4466,7 +4465,9 @@ int get_update_url_md5(char *url, char *md5)
             {
                 xlink_info info;
                 memset(&info,0,sizeof(info));
-                info.bupdated = 1;
+                memcpy(&info,&g_p2ptnp_info.mmap_info->xlinkinfo,sizeof(info));
+                memset(&info.auth_code,0,sizeof(info.auth_code));
+                //info.bupdated = 1;
                 snprintf(info.auth_code, sizeof(info.auth_code), "%s", xlink_get_authcode());
                 if(p2p_send_msg(g_p2ptnp_info.mqfd_dispatch, DISPATCH_SET_XLINK_INFO, (char *)&info, sizeof(info)) < 0)
                 {
@@ -5874,17 +5875,17 @@ void *speaker_worker(void *arg)
 // added by Frank Zhang
 void *report_version_worker(void *arg)
 {
-#if 1
-    // test
 	for(;;)
 	{
 	    if(xlink_report_version(g_p2ptnp_info.mmap_info->mac) >= 0)
 	    {
 	        if(strcmp(g_p2ptnp_info.mmap_info->xlinkinfo.auth_code,xlink_get_authcode()) != 0)
-            {                
+            {
                 xlink_info info;
                 memset(&info,0,sizeof(info));
-                info.bupdated = 0;
+                memcpy(&info,&g_p2ptnp_info.mmap_info->xlinkinfo,sizeof(info));
+                memset(&info.auth_code,0,sizeof(info.auth_code));
+                //info.bupdated = 0;
                 snprintf(info.auth_code, sizeof(info.auth_code), "%s", xlink_get_authcode());
                 if(p2p_send_msg(g_p2ptnp_info.mqfd_dispatch, DISPATCH_SET_XLINK_INFO, (char *)&info, sizeof(info)) < 0)
                 {
@@ -5900,7 +5901,6 @@ void *report_version_worker(void *arg)
 	    }
 		sleep(10);
 	}
-#endif
 	pthread_exit(0);
 }
 
@@ -8196,7 +8196,7 @@ int main(INT32 argc, CHAR **argv)
 #if 1 
     // added by Frank Zhang
     xlink_set_authcode(g_p2ptnp_info.mmap_info->xlinkinfo.auth_code);
-    printf("g_p2ptnp_info.mmap_info->xlinkinfo.bupdated:%d\n",g_p2ptnp_info.mmap_info->xlinkinfo.bupdated);
+    //printf("g_p2ptnp_info.mmap_info->xlinkinfo.bupdated:%d\n",g_p2ptnp_info.mmap_info->xlinkinfo.bupdated);
     //if(g_p2ptnp_info.mmap_info->xlinkinfo.bupdated)
     {
         pthread_t report_version_thread;

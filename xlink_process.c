@@ -21,6 +21,7 @@
 #include <limits.h>
 
 #include <curl/curl.h>
+#include "common.h"
 #include "xlink_type.h"
 #include "Xlink_Head_Adaptation.h"
 
@@ -42,12 +43,13 @@
 #define MCU_FIRMWARE_VERSION        (28)
 
 #define XLINK_HARDWARE_VERSION          (1)
-#define XLINK_CURRENT_VERSION           (10000)
-
+//#define XLINK_CURRENT_VERSION           (10000)
+//#define XLINK_CURRENT_VERSION           (10001)
+#define XLINK_CURRENT_VERSION           (10002)
 #define AUTH_CODE_LEN                   (16+16)
 #define ACCESS_TOKEN_LEN                (128)
 #define DOWNLOAD_URL_LEN                (256)
-
+#define XLINK_AUTHORIZE_CODE_ERROR      (4001097)
 typedef struct
 {
     uint16_t src_ver;
@@ -354,110 +356,139 @@ static int get_access_token(ota_info_t *pinfo)
 	char url[128];
 	CURL *curl = NULL;
 	int nval = 0;
+	int nauthcodErrorCount = 0;
     struct curl_slist *headers = NULL;
 	memory *pmem = NULL;
 	if(!pinfo)
 	{
 	    return ret;
 	}
-	
-    if(get_sdk_info(pinfo) < 0)
-	{
-	    return ret;
-	}
+    do
+    {	
+        if(get_sdk_info(pinfo) < 0)
+	    {
+	        return ret;
+	    }
 
-    if(strlen(pinfo->access_token) > 0)
-    {
-        if(GetTickCount() < pinfo->ntokenendtick)
+        if(strlen(pinfo->access_token) > 0)
         {
-            ret = 0;
+            if(GetTickCount() < pinfo->ntokenendtick)
+            {
+                ret = 0;
+                return ret;
+            }
+            pinfo->ntokenendtick = 0;
+            pinfo->device_id = 0;
+            memset(&pinfo->access_token,0,sizeof(pinfo->access_token));
+        }
+
+        pmem = malloc(sizeof(memory));
+        if(!pmem) {
+            /* out of memory */
+            //printf("not enough memory (realloc returned NULL)\n");
             return ret;
         }
-        pinfo->ntokenendtick = 0;
-        pinfo->device_id = 0;
-        memset(&pinfo->access_token,0,sizeof(pinfo->access_token));
-    }
-
-    pmem = malloc(sizeof(memory));
-    if(!pmem) {
-        /* out of memory */
-        //printf("not enough memory (realloc returned NULL)\n");
-        return ret;
-    }
-    pmem->size = 0;
-    pmem->buf = malloc(1);
-    if(!pmem->buf) {
-        /* out of memory */
-        free(pmem);
-        //printf("not enough memory (realloc returned NULL)\n");
-        return ret;
-    }
-    memset(&url,0,sizeof(url));
-    snprintf(url,sizeof(url),"https://%s/v2/device_login",XLINK_OTA_ADDR);
-    //printf("url:%s\n",url);
-    char *p_PID = read_PID_and_PKEY(READ_PID);
-    uint8_t mac[13] = {0};
-
-    snprintf((char*)mac, sizeof(mac), "%02X%02X%02X%02X%02X%02X", pinfo->mac[0], pinfo->mac[1], pinfo->mac[2], pinfo->mac[3], pinfo->mac[4], pinfo->mac[5]);
-
-    sprintf((char*)post_data, "{\"product_id\":\"%s\",\"mac\":\"%s\",\"authorize_code\":\"%s\"}", p_PID, mac, pinfo->auth_code);
-
-    curl_global_init(CURL_GLOBAL_ALL);
-    curl = curl_easy_init();
-    if(curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
-
-        // no authentication
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        /* no progress meter please */
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
-
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
-
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
-        headers = curl_slist_append(headers, "Content-Type:application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
-
-        curl_easy_perform(curl);
-
-        curl_slist_free_all(headers); /* free the list again */
-
-        //printf("data:%d:%s\n",pmem->size,pmem->buf);
-        if((ret = get_json_string((char*)pmem->buf, "\"access_token\"", pinfo->access_token, ACCESS_TOKEN_LEN)) == GE_SUCCESS)
-        {
-            printf("xlink token:%s\n",pinfo->access_token);
+        pmem->size = 0;
+        pmem->buf = malloc(1);
+        if(!pmem->buf) {
+            /* out of memory */
+            free(pmem);
+            //printf("not enough memory (realloc returned NULL)\n");
+            return ret;
         }
+        memset(&url,0,sizeof(url));
+        snprintf(url,sizeof(url),"https://%s/v2/device_login",XLINK_OTA_ADDR);
+        //printf("url:%s\n",url);
+        char *p_PID = read_PID_and_PKEY(READ_PID);
+        uint8_t mac[13] = {0};
 
-        if((ret = get_json_int((char*)pmem->buf, "\"device_id\"", &nval)) == GE_SUCCESS)
-        {
-            printf("xlink device_id:%d\n", nval);
-            pinfo->device_id = nval;
+        snprintf((char*)mac, sizeof(mac), "%02X%02X%02X%02X%02X%02X", pinfo->mac[0], pinfo->mac[1], pinfo->mac[2], pinfo->mac[3], pinfo->mac[4], pinfo->mac[5]);
+
+        sprintf((char*)post_data, "{\"product_id\":\"%s\",\"mac\":\"%s\",\"authorize_code\":\"%s\"}", p_PID, mac, pinfo->auth_code);
+        nauthcodErrorCount++;
+        curl_global_init(CURL_GLOBAL_ALL);
+        curl = curl_easy_init();
+        if(curl) {
+            curl_easy_setopt(curl, CURLOPT_URL, url);
+            curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
+
+            // no authentication
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+            /* no progress meter please */
+            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
+            headers = curl_slist_append(headers, "Content-Type:application/json");
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+
+            curl_easy_perform(curl);
+
+            curl_slist_free_all(headers); /* free the list again */
+            headers = NULL;
+            nauthcodErrorCount++;
+            long response_code = 0;
+            if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
+            {
+                printf("response_code:%d\n",response_code);
+            }
+            //printf("data:%d:%s\n",pmem->size,pmem->buf);
+            if(response_code == 200)
+            {
+                nauthcodErrorCount = 0;
+                if((ret = get_json_string((char*)pmem->buf, "\"access_token\"", pinfo->access_token, ACCESS_TOKEN_LEN)) == GE_SUCCESS)
+                {
+                    //printf("xlink token:%s\n",pinfo->access_token);
+                    dump_string(_F_, _FU_, _L_, "xlink token:%s\n",pinfo->access_token);
+                }
+
+                if((ret = get_json_int((char*)pmem->buf, "\"device_id\"", &nval)) == GE_SUCCESS)
+                {
+                    //printf("xlink device_id:%d\n", nval);
+                    dump_string(_F_, _FU_, _L_, "xlink device_id:%d\n", nval);
+                    pinfo->device_id = nval;
+                }
+    #if 0
+                nval = 0;
+                if((ret = get_json_int((char*)pmem->buf, "\"expire_in\"", &nval)) == GE_SUCCESS)
+                {
+                    printf("expire_in:%d\n", nval);
+                    pinfo->ntokenendtick = GetTickCount() + nval/2;
+                    printf("tick:%d\n", pinfo->ntokenendtick);
+                }
+    #endif
+            }else{
+                if(get_json_int((char*)pmem->buf, "\"code\"", &nval) == 0)
+                {
+                    printf("nval:%d\n",nval);
+                    if(XLINK_AUTHORIZE_CODE_ERROR == nval)
+                    {
+                        dump_string(_F_, _FU_, _L_,"auth code error\n");
+                        memset(&pinfo->auth_code,0,sizeof(pinfo->auth_code));
+                        nauthcodErrorCount++;
+                    }
+                }
+            }
+
+            curl_easy_cleanup(curl);
+            curl = NULL;
         }
-#if 0
-        nval = 0;
-        if((ret = get_json_int((char*)pmem->buf, "\"expire_in\"", &nval)) == GE_SUCCESS)
+        curl_global_cleanup();
+        if(pmem)
         {
-            printf("expire_in:%d\n", nval);
-            pinfo->ntokenendtick = GetTickCount() + nval/2;
-            printf("tick:%d\n", pinfo->ntokenendtick);
+            if(pmem->buf)
+            {
+                free(pmem->buf);
+            }
+            free(pmem);
+            pmem = NULL;
         }
-#endif
-        curl_easy_cleanup(curl);
-    }
-    curl_global_cleanup();
-    if(pmem)
-    {
-        if(pmem->buf)
-        {
-            free(pmem->buf);
-        }
-        free(pmem);
-    }
+    }while(nauthcodErrorCount == 3);
     return ret;
 }
 int get_version_and_get_download_url(ota_info_t *pinfo)
@@ -536,19 +567,23 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
             pinfo->tar_ver = 0;
             if((ret = get_json_int((char*)pmem->buf, "\"target_version\"", &nval)) == GE_SUCCESS)
             {
-                printf("xlink target_version:%d\n", nval);
+                //printf("xlink target_version:%d\n", nval);
+                dump_string(_F_, _FU_, _L_, "xlink target_version:%d\n", nval);
                 pinfo->tar_ver = (uint16_t)nval;
             }
-            printf("xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
+            //printf("xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
+            dump_string(_F_, _FU_, _L_, "xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
             if(pinfo->tar_ver > pinfo->current_version)
             {
                 if((ret = get_json_string((char*)pmem->buf, "\"target_version_url\"", pinfo->download_url, sizeof(pinfo->download_url))) == GE_SUCCESS)
                 {
-                    printf("xlink download_url:%s\n", pinfo->download_url);
+                    //printf("xlink download_url:%s\n", pinfo->download_url);
+                    dump_string(_F_, _FU_, _L_, "xlink download_url:%s\n", pinfo->download_url);
                 }
                 if((ret = get_json_string((char*)pmem->buf, "\"from_version_md5\"", pinfo->download_md5, sizeof(pinfo->download_md5))) == GE_SUCCESS)
                 {
-                    printf("xlink download_md5:%s\n", pinfo->download_md5);
+                    //printf("xlink download_md5:%s\n", pinfo->download_md5);
+                    dump_string(_F_, _FU_, _L_, "xlink download_md5:%s\n", pinfo->download_md5);
                 }
             }
 
@@ -634,13 +669,15 @@ static int report_version(ota_info_t *pinfo)
         long response_code = 0;
         if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
         {
+            //printf("xlink response_code:%d\n",response_code);
+            dump_string(_F_, _FU_, _L_, "xlink response_code:%d\n",response_code);
             if(200 == response_code)
             {
                 ret = 0;
-                printf("xlink report ok\n");
+                //printf("xlink report ok\n");
+                dump_string(_F_, _FU_, _L_, "xlink report ok\n");
             }else{
                 ret = 1;
-                printf("xlink response_code:%d\n",response_code);
             }
         }
         curl_easy_cleanup(curl);
@@ -662,8 +699,7 @@ static void xlink_init(void)
     if(binit) return;
     otainfo.src_ver = XLINK_HARDWARE_VERSION;
     otainfo.current_version = XLINK_CURRENT_VERSION;
-    //otainfo.current_version = 10001; // test
-    printf("xlink init \n");
+    dump_string(_F_, _FU_, _L_, "xlink current version:%d\n",otainfo.current_version);
     binit = 1;
 }
 
@@ -703,7 +739,8 @@ void xlink_set_authcode(char *pauthcode)
         return;
     }
     snprintf(otainfo.auth_code, sizeof(otainfo.auth_code), "%s", pauthcode);
-    printf("xlink otainfo.auth_code:%s\n",otainfo.auth_code);
+    //printf("xlink otainfo.auth_code:%s\n",otainfo.auth_code);
+    dump_string(_F_, _FU_, _L_, "xlink otainfo.auth_code:%s\n",otainfo.auth_code);
     return;
 }
 int xlink_get_download_url(char *pmac, char *url, char *md5)
