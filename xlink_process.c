@@ -43,9 +43,9 @@
 #define MCU_FIRMWARE_VERSION        (28)
 
 #define XLINK_HARDWARE_VERSION          (1)
-//#define XLINK_CURRENT_VERSION           (10000)
+#define XLINK_CURRENT_VERSION           (10000)
 //#define XLINK_CURRENT_VERSION           (10001)
-#define XLINK_CURRENT_VERSION           (10002)
+//#define XLINK_CURRENT_VERSION           (10002)
 #define AUTH_CODE_LEN                   (16+16)
 #define ACCESS_TOKEN_LEN                (128)
 #define DOWNLOAD_URL_LEN                (256)
@@ -496,6 +496,7 @@ static int get_access_token(ota_info_t *pinfo)
             if(pmem->buf)
             {
                 free(pmem->buf);
+                pmem->buf = NULL;
             }
             free(pmem);
             pmem = NULL;
@@ -528,21 +529,24 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
 	memset(&pinfo->download_md5,0,sizeof(pinfo->download_md5));
 
 	snprintf(token_header,sizeof(token_header),"Access-Token:%s",pinfo->access_token);
-
+	
     pmem = malloc(sizeof(memory));
     if(!pmem) {
         /* out of memory */
-        printf("not enough memory (realloc returned NULL)\n");
+        //printf("not enough memory (realloc returned NULL)\n");
         return ret;
     }
+    memset(pmem,0,sizeof(memory));
     pmem->size = 0;
     pmem->buf = malloc(1);
     if(!pmem->buf) {
         /* out of memory */
         free(pmem);
-        printf("not enough memory (realloc returned NULL)\n");
+        //printf("not enough memory (realloc returned NULL)\n");
         return ret;
     }
+    memset(pmem->buf,0,1);
+    
     memset(&url,0,sizeof(url));
     snprintf(url,sizeof(url),"https://%s/v2/upgrade/firmware/check/%d",XLINK_OTA_ADDR,pinfo->device_id);
     //printf("url:%s\n",url);
@@ -611,8 +615,10 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
         if(pmem->buf)
         {
             free(pmem->buf);
+            pmem->buf = NULL;
         }
         free(pmem);
+        pmem = NULL;
     }
     return ret;
 }
@@ -641,17 +647,19 @@ static int report_version(ota_info_t *pinfo)
     pmem = malloc(sizeof(memory));
     if(!pmem) {
         /* out of memory */
-        printf("not enough memory (realloc returned NULL)\n");
+        //printf("not enough memory (realloc returned NULL)\n");
         return ret;
     }
+    memset(pmem,0,sizeof(memory));
     pmem->size = 0;
     pmem->buf = malloc(1);
     if(!pmem->buf) {
         /* out of memory */
         free(pmem);
-        printf("not enough memory (realloc returned NULL)\n");
+        //printf("not enough memory (realloc returned NULL)\n");
         return ret;
     }
+    memset(pmem->buf,0,1);
 
     memset(&url,0,sizeof(url));
     snprintf(url,sizeof(url),"https://%s/v2/upgrade/firmware/report/%d",XLINK_OTA_ADDR,pinfo->device_id);
@@ -706,8 +714,10 @@ static int report_version(ota_info_t *pinfo)
         if(pmem->buf)
         {
             free(pmem->buf);
+            pmem->buf = NULL;
         }
         free(pmem);
+        pmem = NULL;
     }
     return ret;
 }
