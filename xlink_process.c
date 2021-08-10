@@ -349,12 +349,29 @@ static time_t GetTickCount()
 
     return (ts.tv_sec);
 }
+
+/* error handling macros */
+#define my_curl_easy_setopt(A, B, C)                               \
+  do {                                                             \
+    res = curl_easy_setopt((A), (B), (C));                         \
+    if(res != CURLE_OK)                                            \
+      fprintf(stderr, "curl_easy_setopt(%s, %s, %s) failed: %d\n", \
+              #A, #B, #C, res);                                    \
+  } while(0)
+
+#define my_curl_easy_perform(A)                                         \
+  do {                                                                  \
+    res = curl_easy_perform(A);                                         \
+    if(res != CURLE_OK)                                                 \
+      fprintf(stderr, "curl_easy_perform(%s) failed: %d\n", #A, res);   \
+  } while(0)
 static int get_access_token(ota_info_t *pinfo)
 {
     int ret = -1;
 	uint8_t post_data[512] = {0};
 	char url[128];
 	CURL *curl = NULL;
+	CURLcode res = CURLE_OK;
 	int nval = 0;
 	int nauthcodErrorCount = 0;
     struct curl_slist *headers = NULL;
@@ -408,79 +425,72 @@ static int get_access_token(ota_info_t *pinfo)
 
         sprintf((char*)post_data, "{\"product_id\":\"%s\",\"mac\":\"%s\",\"authorize_code\":\"%s\"}", p_PID, mac, pinfo->auth_code);
         nauthcodErrorCount++;
-        curl_global_init(CURL_GLOBAL_ALL);
-        curl = curl_easy_init();
-        if(curl) {
-            curl_easy_setopt(curl, CURLOPT_URL, url);
-            curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
+        res = curl_global_init(CURL_GLOBAL_ALL);
+        if(res == CURLE_OK) {
+            curl = curl_easy_init();
+            if(curl) {
+                my_curl_easy_setopt(curl, CURLOPT_URL, url);
+                my_curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
 
-            // no authentication
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+                // no authentication
+                my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+                my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-            /* no progress meter please */
-            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+                /* no progress meter please */
+                my_curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
 
-            curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+                my_curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
 
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
-            headers = curl_slist_append(headers, "Content-Type:application/json");
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+                my_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
+                my_curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
+                headers = curl_slist_append(headers, "Content-Type:application/json");
+                my_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+                my_curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
 
-            curl_easy_perform(curl);
+                my_curl_easy_perform(curl);
 
-            curl_slist_free_all(headers); /* free the list again */
-            headers = NULL;
-            nauthcodErrorCount++;
-            long response_code = 0;
-            if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
-            {
-                printf("response_code:%d\n",response_code);
-            }
-            //printf("data:%d:%s\n",pmem->size,pmem->buf);
-            if(response_code == 200)
-            {
-                nauthcodErrorCount = 0;
-                if((ret = get_json_string((char*)pmem->buf, "\"access_token\"", pinfo->access_token, ACCESS_TOKEN_LEN)) == GE_SUCCESS)
+                curl_slist_free_all(headers); /* free the list again */
+                headers = NULL;
+                nauthcodErrorCount++;
+                long response_code = 0;
+                if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
                 {
-                    //printf("xlink token:%s\n",pinfo->access_token);
-                    dump_string(_F_, _FU_, _L_, "xlink token:%s\n",pinfo->access_token);
+                    printf("response_code:%d\n",response_code);
                 }
-
-                if((ret = get_json_int((char*)pmem->buf, "\"device_id\"", &nval)) == GE_SUCCESS)
+                //printf("data:%d:%s\n",pmem->size,pmem->buf);
+                if(response_code == 200)
                 {
-                    //printf("xlink device_id:%d\n", nval);
-                    dump_string(_F_, _FU_, _L_, "xlink device_id:%d\n", nval);
-                    pinfo->device_id = nval;
-                }
-    #if 0
-                nval = 0;
-                if((ret = get_json_int((char*)pmem->buf, "\"expire_in\"", &nval)) == GE_SUCCESS)
-                {
-                    printf("expire_in:%d\n", nval);
-                    pinfo->ntokenendtick = GetTickCount() + nval/2;
-                    printf("tick:%d\n", pinfo->ntokenendtick);
-                }
-    #endif
-            }else{
-                if(get_json_int((char*)pmem->buf, "\"code\"", &nval) == 0)
-                {
-                    printf("nval:%d\n",nval);
-                    if(XLINK_AUTHORIZE_CODE_ERROR == nval)
+                    nauthcodErrorCount = 0;
+                    if((ret = get_json_string((char*)pmem->buf, "\"access_token\"", pinfo->access_token, ACCESS_TOKEN_LEN)) == GE_SUCCESS)
                     {
-                        dump_string(_F_, _FU_, _L_,"auth code error\n");
-                        memset(&pinfo->auth_code,0,sizeof(pinfo->auth_code));
-                        nauthcodErrorCount++;
+                        //printf("xlink token:%s\n",pinfo->access_token);
+                        dump_string(_F_, _FU_, _L_, "xlink token:%s\n",pinfo->access_token);
+                    }
+
+                    if((ret = get_json_int((char*)pmem->buf, "\"device_id\"", &nval)) == GE_SUCCESS)
+                    {
+                        //printf("xlink device_id:%d\n", nval);
+                        dump_string(_F_, _FU_, _L_, "xlink device_id:%d\n", nval);
+                        pinfo->device_id = nval;
+                    }
+                }else{
+                    if(get_json_int((char*)pmem->buf, "\"code\"", &nval) == 0)
+                    {
+                        printf("nval:%d\n",nval);
+                        if(XLINK_AUTHORIZE_CODE_ERROR == nval)
+                        {
+                            dump_string(_F_, _FU_, _L_,"auth code error\n");
+                            memset(&pinfo->auth_code,0,sizeof(pinfo->auth_code));
+                            nauthcodErrorCount++;
+                        }
                     }
                 }
-            }
 
-            curl_easy_cleanup(curl);
-            curl = NULL;
+                curl_easy_cleanup(curl);
+                curl = NULL;
+            }
+            curl_global_cleanup();
         }
-        curl_global_cleanup();
         if(pmem)
         {
             if(pmem->buf)
@@ -499,6 +509,7 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
     int nval = 0;
 	uint8_t post_data[512] = {0};
 	char url[128];
+	CURLcode res = CURLE_OK;
 	CURL *curl = NULL;
 	char token_header[ACCESS_TOKEN_LEN + 128] = {0};
     struct curl_slist *headers = NULL;
@@ -538,61 +549,63 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
     char *p_PID = read_PID_and_PKEY(READ_PID);
     sprintf((char*)post_data, "{\"product_id\":\"%s\",\"type\":\"1\",\"current_version\":\"%02d\",\"identify\":\"0\"}", p_PID, pinfo->src_ver);
     //printf("post_data:%s\n",post_data);
-    curl_global_init(CURL_GLOBAL_ALL);
-    curl = curl_easy_init();
-    if(curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
+    res = curl_global_init(CURL_GLOBAL_ALL);
+    if(res == CURLE_OK) {
+        curl = curl_easy_init();
+        if(curl) {
+            my_curl_easy_setopt(curl, CURLOPT_URL, url);
+            my_curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
 
-        // no authentication
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+            // no authentication
+            my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-        /* no progress meter please */
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+            /* no progress meter please */
+            my_curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
 
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+            my_curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
 
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
-        headers = curl_slist_append(headers, "Content-Type:application/json");
-        headers = curl_slist_append(headers, token_header);
-        headers = curl_slist_append(headers, "Connection:close");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+            my_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
+            my_curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
+            headers = curl_slist_append(headers, "Content-Type:application/json");
+            headers = curl_slist_append(headers, token_header);
+            headers = curl_slist_append(headers, "Connection:close");
+            my_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+            my_curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
 
-        curl_easy_perform(curl);
-        curl_slist_free_all(headers); /* free the list again */
-        //printf("data:%d:%s\n",pmem->size,pmem->buf);
-        if(pmem->size > 0)
-        {
-            pinfo->tar_ver = 0;
-            if((ret = get_json_int((char*)pmem->buf, "\"target_version\"", &nval)) == GE_SUCCESS)
+            my_curl_easy_perform(curl);
+            curl_slist_free_all(headers); /* free the list again */
+            //printf("data:%d:%s\n",pmem->size,pmem->buf);
+            if(pmem->size > 0)
             {
-                //printf("xlink target_version:%d\n", nval);
-                dump_string(_F_, _FU_, _L_, "xlink target_version:%d\n", nval);
-                pinfo->tar_ver = (uint16_t)nval;
-            }
-            //printf("xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
-            dump_string(_F_, _FU_, _L_, "xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
-            if(pinfo->tar_ver > pinfo->current_version)
-            {
-                if((ret = get_json_string((char*)pmem->buf, "\"target_version_url\"", pinfo->download_url, sizeof(pinfo->download_url))) == GE_SUCCESS)
+                pinfo->tar_ver = 0;
+                if((ret = get_json_int((char*)pmem->buf, "\"target_version\"", &nval)) == GE_SUCCESS)
                 {
-                    //printf("xlink download_url:%s\n", pinfo->download_url);
-                    dump_string(_F_, _FU_, _L_, "xlink download_url:%s\n", pinfo->download_url);
+                    //printf("xlink target_version:%d\n", nval);
+                    dump_string(_F_, _FU_, _L_, "xlink target_version:%d\n", nval);
+                    pinfo->tar_ver = (uint16_t)nval;
                 }
-                if((ret = get_json_string((char*)pmem->buf, "\"from_version_md5\"", pinfo->download_md5, sizeof(pinfo->download_md5))) == GE_SUCCESS)
+                //printf("xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
+                dump_string(_F_, _FU_, _L_, "xlink version:%d %d\n",pinfo->tar_ver, pinfo->current_version);
+                if(pinfo->tar_ver > pinfo->current_version)
                 {
-                    //printf("xlink download_md5:%s\n", pinfo->download_md5);
-                    dump_string(_F_, _FU_, _L_, "xlink download_md5:%s\n", pinfo->download_md5);
+                    if((ret = get_json_string((char*)pmem->buf, "\"target_version_url\"", pinfo->download_url, sizeof(pinfo->download_url))) == GE_SUCCESS)
+                    {
+                        //printf("xlink download_url:%s\n", pinfo->download_url);
+                        dump_string(_F_, _FU_, _L_, "xlink download_url:%s\n", pinfo->download_url);
+                    }
+                    if((ret = get_json_string((char*)pmem->buf, "\"from_version_md5\"", pinfo->download_md5, sizeof(pinfo->download_md5))) == GE_SUCCESS)
+                    {
+                        //printf("xlink download_md5:%s\n", pinfo->download_md5);
+                        dump_string(_F_, _FU_, _L_, "xlink download_md5:%s\n", pinfo->download_md5);
+                    }
                 }
-            }
 
-    	}
-        curl_easy_cleanup(curl);
+        	}
+            curl_easy_cleanup(curl);
+        }
+        curl_global_cleanup();
     }
-    curl_global_cleanup();
     if(pmem)
     {
         if(pmem->buf)
@@ -610,6 +623,7 @@ static int report_version(ota_info_t *pinfo)
 	uint8_t post_data[512] = {0};
 	char url[128];
 	CURL *curl = NULL;
+	CURLcode res = CURLE_OK;
 	char token_header[ACCESS_TOKEN_LEN + 128] = {0};
     struct curl_slist *headers = NULL;
 	memory *pmem = NULL;
@@ -643,48 +657,50 @@ static int report_version(ota_info_t *pinfo)
     snprintf(url,sizeof(url),"https://%s/v2/upgrade/firmware/report/%d",XLINK_OTA_ADDR,pinfo->device_id);
     sprintf(post_data, "{\"type\":\"1\",\"mod\":\"%d\",\"identify\":\"0\",\"last_version\":\"%d\",\"current_version\":\"%d\",\"result\":\"0\"}", 1, pinfo->current_version, pinfo->current_version);
     //printf("post_data:%s\n",post_data);
-    curl_global_init(CURL_GLOBAL_ALL);
-    curl = curl_easy_init();
-    if(curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
+    res = curl_global_init(CURL_GLOBAL_ALL);
+    if(res == CURLE_OK) {
+        curl = curl_easy_init();
+        if(curl) {
+            my_curl_easy_setopt(curl, CURLOPT_URL, url);
+            my_curl_easy_setopt(curl, CURLOPT_PORT, XLINK_OTA_PORT);
 
-        // no authentication
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+            // no authentication
+            my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            my_curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-        /* no progress meter please */
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+            /* no progress meter please */
+            my_curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
 
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+            my_curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
 
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
-        headers = curl_slist_append(headers, "Content-Type:application/json");
-        headers = curl_slist_append(headers, token_header);
-        headers = curl_slist_append(headers, "Connection:close");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+            my_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, grow_buffer);
+            my_curl_easy_setopt(curl, CURLOPT_WRITEDATA, pmem);
+            headers = curl_slist_append(headers, "Content-Type:application/json");
+            headers = curl_slist_append(headers, token_header);
+            headers = curl_slist_append(headers, "Connection:close");
+            my_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+            my_curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
 
-        curl_easy_perform(curl);
-        curl_slist_free_all(headers); /* free the list again */
-        long response_code = 0;
-        if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
-        {
-            //printf("xlink response_code:%d\n",response_code);
-            dump_string(_F_, _FU_, _L_, "xlink response_code:%d\n",response_code);
-            if(200 == response_code)
+            my_curl_easy_perform(curl);
+            curl_slist_free_all(headers); /* free the list again */
+            long response_code = 0;
+            if(curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
             {
-                ret = 0;
-                //printf("xlink report ok\n");
-                dump_string(_F_, _FU_, _L_, "xlink report ok\n");
-            }else{
-                ret = 1;
+                //printf("xlink response_code:%d\n",response_code);
+                dump_string(_F_, _FU_, _L_, "xlink response_code:%d\n",response_code);
+                if(200 == response_code)
+                {
+                    ret = 0;
+                    //printf("xlink report ok\n");
+                    dump_string(_F_, _FU_, _L_, "xlink report ok\n");
+                }else{
+                    ret = 1;
+                }
             }
+            curl_easy_cleanup(curl);
         }
-        curl_easy_cleanup(curl);
+        curl_global_cleanup();
     }
-    curl_global_cleanup();
     if(pmem)
     {
         if(pmem->buf)
