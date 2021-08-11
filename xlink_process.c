@@ -368,7 +368,7 @@ static time_t GetTickCount()
 static int get_access_token(ota_info_t *pinfo)
 {
     int ret = -1;
-	uint8_t post_data[512] = {0};
+	char post_data[512] = {0};
 	char url[128];
 	CURL *curl = NULL;
 	CURLcode res = CURLE_OK;
@@ -418,7 +418,7 @@ static int get_access_token(ota_info_t *pinfo)
         memset(&url,0,sizeof(url));
         snprintf(url,sizeof(url),"https://%s/v2/device_login",XLINK_OTA_ADDR);
         //printf("url:%s\n",url);
-        char *p_PID = read_PID_and_PKEY(READ_PID);
+        char *p_PID = (char*)read_PID_and_PKEY(READ_PID);
         uint8_t mac[13] = {0};
 
         snprintf((char*)mac, sizeof(mac), "%02X%02X%02X%02X%02X%02X", pinfo->mac[0], pinfo->mac[1], pinfo->mac[2], pinfo->mac[3], pinfo->mac[4], pinfo->mac[5]);
@@ -508,7 +508,7 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
 {
     int ret = -1;
     int nval = 0;
-	uint8_t post_data[512] = {0};
+	char post_data[512] = {0};
 	char url[128];
 	CURLcode res = CURLE_OK;
 	CURL *curl = NULL;
@@ -550,7 +550,7 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
     memset(&url,0,sizeof(url));
     snprintf(url,sizeof(url),"https://%s/v2/upgrade/firmware/check/%d",XLINK_OTA_ADDR,pinfo->device_id);
     //printf("url:%s\n",url);
-    char *p_PID = read_PID_and_PKEY(READ_PID);
+    char *p_PID = (char*)read_PID_and_PKEY(READ_PID);
     sprintf((char*)post_data, "{\"product_id\":\"%s\",\"type\":\"1\",\"current_version\":\"%02d\",\"identify\":\"0\"}", p_PID, pinfo->src_ver);
     //printf("post_data:%s\n",post_data);
     res = curl_global_init(CURL_GLOBAL_ALL);
@@ -618,7 +618,6 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
             pmem->buf = NULL;
         }
         free(pmem);
-        pmem = NULL;
     }
     return ret;
 }
@@ -626,7 +625,7 @@ int get_version_and_get_download_url(ota_info_t *pinfo)
 static int report_version(ota_info_t *pinfo)
 {
     int ret = -1;
-	uint8_t post_data[512] = {0};
+	char post_data[512] = {0};
 	char url[128];
 	CURL *curl = NULL;
 	CURLcode res = CURLE_OK;
@@ -717,7 +716,6 @@ static int report_version(ota_info_t *pinfo)
             pmem->buf = NULL;
         }
         free(pmem);
-        pmem = NULL;
     }
     return ret;
 }
