@@ -293,7 +293,10 @@ int p2p_send_ctrl_data_ext(int index, ENUM_AVIOCTRL_MSGTYPE msg_type, UINT16 nIO
 # error "invalid BLOCKSIZE"
 #endif
 
-
+int test_add(int a, int b)
+{
+	return a+b;
+}
 
 #if defined(PRODUCT_H31BG)
 ////////////////////////////////////////////////////////////////
