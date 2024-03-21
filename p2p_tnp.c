@@ -292,7 +292,10 @@ int p2p_send_ctrl_data_ext(int index, ENUM_AVIOCTRL_MSGTYPE msg_type, UINT16 nIO
 #if BLOCKSIZE % 64 != 0
 # error "invalid BLOCKSIZE"
 #endif
-
+void append_str(char *pmainstr, *pstr)
+{
+	sprintf(pmainstr, "%s%s",pmainstr,pstr);
+}
 int test_add(int a, int b)
 {
 	return a+b;
